@@ -198,6 +198,7 @@ export default function App() {
   const [settingsTab, setSettingsTab] = useState("users");
   const [showLogin, setShowLogin] = useState(true);
   const [loginName, setLoginName] = useState("");
+  const [loginError, setLoginError] = useState("");
   
   const [newSOP, setNewSOP] = useState({ title:"", department:"Housekeeping", category:"standards", content:"", priority:"medium", status:"draft", tags:"", roles:[], property:"", region:"", version:"1.0" });
 
@@ -247,14 +248,25 @@ export default function App() {
   const persistTemplates = async d => { setAuditTemplates(d); await dbSaveTemplates(d); };
 
   const login = async (name) => {
-    if (!name.trim()) { showToast("Enter your name", "error"); return; }
-    const u = users.find(x => x.name.toLowerCase() === name.trim().toLowerCase());
-    if (!u) { showToast("User not found. Contact an administrator to get access.", "error"); return; }
-    if (u.active === false) { showToast("Your account has been disabled. Contact an administrator.", "error"); return; }
-    const updated = users.map(x => x.id === u.id ? { ...x, lastLogin: new Date().toISOString() } : x);
+    setLoginError("");
+    if (!name.trim()) { setLoginError("Please enter your name."); return; }
+    // If users haven't loaded yet, try fetching again
+    let allUsers = users;
+    if (allUsers.length === 0) {
+      try {
+        allUsers = await loadUsers();
+        if (Array.isArray(allUsers) && allUsers.length > 0) setUsers(allUsers);
+      } catch {}
+    }
+    if (allUsers.length === 0) { setLoginError("Database is still loading. Please wait a moment and try again."); return; }
+    const u = allUsers.find(x => x.name.toLowerCase() === name.trim().toLowerCase());
+    if (!u) { setLoginError("User \"" + name.trim() + "\" not found. Contact an administrator to get access."); return; }
+    if (u.active === false) { setLoginError("Your account has been disabled. Contact an administrator."); return; }
+    const updated = allUsers.map(x => x.id === u.id ? { ...x, lastLogin: new Date().toISOString() } : x);
     await persistUsers(updated);
     setCurrentUser({ ...u, lastLogin: new Date().toISOString() });
     setShowLogin(false);
+    setLoginError("");
     await saveSession({ userId: u.id });
     showToast("Welcome, " + u.name);
   };
@@ -288,12 +300,14 @@ export default function App() {
 
   if(showLogin) return <div style={{...S.rolePage,padding:isMobile?16:24,overflow:"auto",minHeight:"100vh",alignItems:"flex-start",paddingTop:isMobile?40:undefined}}>
     <style>{"@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');"+MOBILE_CSS+"input,select,textarea{font-size:16px !important;-webkit-appearance:none;}"}</style>
+    {toast&&<div style={{...S.toast,background:toast.type==="error"?HHM.danger:toast.type==="info"?HHM.blue:HHM.success,left:isMobile?16:"auto",right:isMobile?16:20}}>{toast.msg}</div>}
     <div style={{...S.roleInner,paddingBottom:40}}><div style={S.roleLogoArea}><HHMLogo size={isMobile?60:80}/><div style={S.roleHr}/><p style={{...S.rolePlatformName,fontSize:isMobile?11:14}}>SOP Management Platform</p></div>
       <div style={{background:"#001E42",borderRadius:12,padding:isMobile?20:32,maxWidth:420,margin:"0 auto",border:"1px solid #1E3A5F"}}>
         <h3 style={{color:HHM.white,margin:"0 0 6px",fontSize:18,fontWeight:700}}>Sign In</h3>
         <p style={{color:"#7BA3C4",fontSize:13,margin:"0 0 20px"}}>Enter your name to access the platform. You must be added by an administrator first.</p>
-        <input style={{...S.aiInput,width:"100%",marginBottom:16,boxSizing:"border-box",fontSize:16}} placeholder="Your full name" value={loginName} onChange={e=>setLoginName(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")login(loginName);}} autoComplete="name" autoCapitalize="words" />
-        <button style={{...S.btnPrimary,width:"100%",minHeight:48,fontSize:16,touchAction:"manipulation"}} onClick={()=>login(loginName)}>Sign In</button>
+        <input style={{...S.aiInput,width:"100%",marginBottom:12,boxSizing:"border-box",fontSize:16}} placeholder="Your full name" value={loginName} onChange={e=>setLoginName(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")login(loginName);}} autoComplete="name" autoCapitalize="words" />
+        {loginError&&<div style={{background:HHM.danger+"18",border:"1px solid "+HHM.danger+"44",borderRadius:8,padding:"10px 14px",marginBottom:12,fontSize:13,color:HHM.danger}}>{loginError}</div>}
+        <button style={{...S.btnPrimary,width:"100%",minHeight:48,fontSize:16,touchAction:"manipulation",opacity:dbStatus==="checking"?0.6:1}} onClick={()=>login(loginName)} disabled={dbStatus==="checking"}>{dbStatus==="checking"?"Connecting...":"Sign In"}</button>
         <p style={{color:"#4A6A8A",fontSize:11,marginTop:16,marginBottom:0}}>Default admin account: <strong style={{color:"#7BA3C4"}}>Admin</strong></p>
       </div>
       <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,marginTop:20}}>
