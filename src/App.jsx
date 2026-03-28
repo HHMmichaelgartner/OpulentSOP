@@ -286,14 +286,14 @@ export default function App() {
   };
   const resetNew = () => setNewSOP({title:"",department:"Housekeeping",category:"standards",content:"",priority:"medium",status:"draft",tags:"",roles:[],property:"",region:"",version:"1.0"});
 
-  if(showLogin) return <div style={{...S.rolePage,padding:isMobile?16:24}}>
-    <style>{"@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');"+MOBILE_CSS}</style>
-    <div style={S.roleInner}><div style={S.roleLogoArea}><HHMLogo size={isMobile?60:80}/><div style={S.roleHr}/><p style={{...S.rolePlatformName,fontSize:isMobile?11:14}}>SOP Management Platform</p></div>
+  if(showLogin) return <div style={{...S.rolePage,padding:isMobile?16:24,overflow:"auto",minHeight:"100vh",alignItems:"flex-start",paddingTop:isMobile?40:undefined}}>
+    <style>{"@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');"+MOBILE_CSS+"input,select,textarea{font-size:16px !important;-webkit-appearance:none;}"}</style>
+    <div style={{...S.roleInner,paddingBottom:40}}><div style={S.roleLogoArea}><HHMLogo size={isMobile?60:80}/><div style={S.roleHr}/><p style={{...S.rolePlatformName,fontSize:isMobile?11:14}}>SOP Management Platform</p></div>
       <div style={{background:"#001E42",borderRadius:12,padding:isMobile?20:32,maxWidth:420,margin:"0 auto",border:"1px solid #1E3A5F"}}>
         <h3 style={{color:HHM.white,margin:"0 0 6px",fontSize:18,fontWeight:700}}>Sign In</h3>
         <p style={{color:"#7BA3C4",fontSize:13,margin:"0 0 20px"}}>Enter your name to access the platform. You must be added by an administrator first.</p>
-        <input style={{...S.aiInput,width:"100%",marginBottom:16,boxSizing:"border-box"}} placeholder="Your full name" value={loginName} onChange={e=>setLoginName(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")login(loginName);}}/>
-        <button style={{...S.btnPrimary,width:"100%"}} onClick={()=>login(loginName)}>Sign In</button>
+        <input style={{...S.aiInput,width:"100%",marginBottom:16,boxSizing:"border-box",fontSize:16}} placeholder="Your full name" value={loginName} onChange={e=>setLoginName(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")login(loginName);}} autoComplete="name" autoCapitalize="words" />
+        <button style={{...S.btnPrimary,width:"100%",minHeight:48,fontSize:16,touchAction:"manipulation"}} onClick={()=>login(loginName)}>Sign In</button>
         <p style={{color:"#4A6A8A",fontSize:11,marginTop:16,marginBottom:0}}>Default admin account: <strong style={{color:"#7BA3C4"}}>Admin</strong></p>
       </div>
       <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,marginTop:20}}>
@@ -883,7 +883,7 @@ const S={
   dot:{color:HHM.gray200},
   badge:{fontSize:11,padding:"3px 10px",borderRadius:20,fontWeight:600},
   tag:{fontSize:11,padding:"3px 10px",borderRadius:12,background:HHM.blueLight,color:HHM.blue,border:"1px solid "+HHM.blue+"20",fontWeight:500},
-  btnPrimary:{background:HHM.blue,color:HHM.white,border:"none",borderRadius:8,padding:"10px 22px",fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"},
+  btnPrimary:{background:HHM.blue,color:HHM.white,border:"none",borderRadius:8,padding:"12px 22px",fontSize:16,fontWeight:600,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",touchAction:"manipulation",WebkitTapHighlightColor:"transparent"},
   btnSecondary:{background:HHM.white,color:HHM.gray700,border:"1px solid "+HHM.gray200,borderRadius:8,padding:"10px 22px",fontSize:14,fontWeight:500,cursor:"pointer",fontFamily:"inherit"},
   btnSuccess:{background:HHM.success,color:HHM.white,border:"none",borderRadius:8,padding:"10px 18px",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit"},
   btnWarning:{background:HHM.warning,color:HHM.white,border:"none",borderRadius:8,padding:"10px 18px",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit"},
@@ -894,14 +894,14 @@ const S={
   formGrid:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"16px 20px",marginBottom:20},
   formGroup:{display:"flex",flexDirection:"column",gap:5,marginBottom:8},
   formLabel:{fontSize:11,fontWeight:700,color:HHM.gray500,textTransform:"uppercase",letterSpacing:1.2},
-  formInput:{padding:"10px 14px",border:"1px solid "+HHM.gray200,borderRadius:8,fontSize:14,fontFamily:"inherit",background:HHM.gray50,outline:"none",color:HHM.gray900},
+  formInput:{padding:"10px 14px",border:"1px solid "+HHM.gray200,borderRadius:8,fontSize:16,fontFamily:"inherit",background:HHM.gray50,outline:"none",color:HHM.gray900,WebkitAppearance:"none",appearance:"none"},
   formTextarea:{padding:"14px",border:"1px solid "+HHM.gray200,borderRadius:8,fontSize:14,fontFamily:"monospace",background:HHM.gray50,outline:"none",resize:"vertical",lineHeight:1.7,color:HHM.gray900},
   aiBox:{background:"linear-gradient(135deg,"+HHM.navyDeep+","+HHM.navy+")",borderRadius:12,padding:24,marginBottom:24},
   aiHeader:{display:"flex",alignItems:"center",gap:12},
   aiIconCircle:{width:40,height:40,borderRadius:10,background:HHM.blue+"25",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20},
   aiTitle:{fontSize:16,fontWeight:700,color:HHM.white},
   aiDesc:{fontSize:13,color:"#7BA3C4",marginTop:2},
-  aiInput:{flex:1,padding:"12px 16px",borderRadius:8,border:"1px solid #1E3A5F",background:"#001228",color:"#C8DAE8",fontSize:14,fontFamily:"inherit",outline:"none"},
+  aiInput:{flex:1,padding:"12px 16px",borderRadius:8,border:"1px solid #1E3A5F",background:"#001228",color:"#C8DAE8",fontSize:16,fontFamily:"inherit",outline:"none",WebkitAppearance:"none",appearance:"none"},
   contentBlock:{background:HHM.white,border:"1px solid "+HHM.gray100,borderRadius:12,padding:"28px 32px",marginTop:20,lineHeight:1.7,fontSize:14},
   metaFooter:{marginTop:16,fontSize:12,color:HHM.gray400,padding:"12px 0",borderTop:"1px solid "+HHM.gray100},
   th:{padding:"10px 16px",textAlign:"left",fontSize:11,fontWeight:700,color:HHM.gray500,textTransform:"uppercase",letterSpacing:1},
