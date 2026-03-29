@@ -271,11 +271,40 @@ export default function App() {
       const u = allUsers.find(x => x.name.toLowerCase() === name.toLowerCase());
       if (!u) { setLoginError("User not found. Contact your Security Admin for access."); setLoginLoading(false); return; }
       if (u.active === false) { setLoginError("Account disabled. Contact your Security Admin."); setLoginLoading(false); return; }
-      if (u.password && u.password !== pass) { setLoginError("Incorrect password."); setLoginLoading(false); return; }
-      if (!u.password && pass !== "changeme") { setLoginError("Incorrect password."); setLoginLoading(false); return; }
-      const updated = allUsers.map(x => x.id === u.id ? { ...x, lastLogin: new Date().toISOString() } : x);
+      // Check lockout
+      if (u.lockedUntil) {
+        const lockTime = new Date(u.lockedUntil).getTime();
+        if (Date.now() < lockTime) {
+          const minsLeft = Math.ceil((lockTime - Date.now()) / 60000);
+          setLoginError("Account locked due to too many failed attempts. Try again in " + minsLeft + " minute" + (minsLeft !== 1 ? "s" : "") + ". Contact Security Admin to unlock.");
+          setLoginLoading(false);
+          return;
+        }
+      }
+      // Check password
+      const correctPass = u.password || "changeme";
+      if (pass !== correctPass) {
+        const attempts = (u.failedAttempts || 0) + 1;
+        const remaining = 4 - attempts;
+        let lockData = { failedAttempts: attempts };
+        if (attempts >= 4) {
+          lockData.lockedUntil = new Date(Date.now() + 15 * 60000).toISOString();
+          lockData.failedAttempts = attempts;
+        }
+        const updated = allUsers.map(x => x.id === u.id ? { ...x, ...lockData } : x);
+        await persistUsers(updated);
+        if (attempts >= 4) {
+          setLoginError("Account locked for 15 minutes after 4 failed attempts. Contact Security Admin to unlock.");
+        } else {
+          setLoginError("Incorrect password. " + remaining + " attempt" + (remaining !== 1 ? "s" : "") + " remaining before lockout.");
+        }
+        setLoginLoading(false);
+        return;
+      }
+      // Success - clear failed attempts
+      const updated = allUsers.map(x => x.id === u.id ? { ...x, lastLogin: new Date().toISOString(), failedAttempts: 0, lockedUntil: null } : x);
       await persistUsers(updated);
-      setCurrentUser({ ...u, lastLogin: new Date().toISOString() });
+      setCurrentUser({ ...u, lastLogin: new Date().toISOString(), failedAttempts: 0, lockedUntil: null });
       setShowLogin(false);
       setLoginError("");
       setLoginPass("");
@@ -763,10 +792,31 @@ export default function App() {
                     {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
                   </select>
                 </td>
-                <td style={S.td}><span style={{...S.badge,background:u.active !== false ? HHM.success+"14" : HHM.danger+"14", color: u.active !== false ? HHM.success : HHM.danger}}>{u.active !== false ? "Active" : "Disabled"}</span></td>
+                <td style={S.td}>
+                  <div style={{display:"flex",flexDirection:"column",gap:3}}>
+                    <span style={{...S.badge,background:u.active !== false ? HHM.success+"14" : HHM.danger+"14", color: u.active !== false ? HHM.success : HHM.danger}}>{u.active !== false ? "Active" : "Disabled"}</span>
+                    {u.lockedUntil && new Date(u.lockedUntil).getTime() > Date.now() && <span style={{...S.badge,background:HHM.danger+"14",color:HHM.danger}}>Locked</span>}
+                    {u.failedAttempts > 0 && (!u.lockedUntil || new Date(u.lockedUntil).getTime() <= Date.now()) && <span style={{fontSize:10,color:HHM.warning}}>{u.failedAttempts} failed</span>}
+                  </div>
+                </td>
                 <td style={S.td}><span style={{fontSize:12,color:HHM.gray400}}>{u.lastLogin ? new Date(u.lastLogin).toLocaleDateString() : "Never"}</span></td>
                 <td style={S.td}>
                   <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                    <button style={{background:"none",border:"1px solid "+HHM.blue+"44",borderRadius:6,padding:"4px 10px",fontSize:11,cursor:"pointer",color:HHM.blue,fontFamily:"inherit"}}
+                      onClick={async () => {
+                        const newPass = prompt("Enter new password for " + u.name + ":");
+                        if (!newPass) return;
+                        if (newPass.length < 4) { showToast("Password must be at least 4 characters", "error"); return; }
+                        const upd = users.map(x => x.id === u.id ? {...x, password: newPass, failedAttempts: 0, lockedUntil: null} : x);
+                        await persistUsers(upd);
+                        showToast("Password reset for " + u.name);
+                      }}>Reset Password</button>
+                    {u.lockedUntil && new Date(u.lockedUntil).getTime() > Date.now() && <button style={{background:"none",border:"1px solid "+HHM.warning+"44",borderRadius:6,padding:"4px 10px",fontSize:11,cursor:"pointer",color:HHM.warning,fontFamily:"inherit"}}
+                      onClick={async () => {
+                        const upd = users.map(x => x.id === u.id ? {...x, failedAttempts: 0, lockedUntil: null} : x);
+                        await persistUsers(upd);
+                        showToast(u.name + " unlocked");
+                      }}>Unlock</button>}
                     <button style={{background:"none",border:"1px solid "+(u.active !== false ? HHM.danger+"44" : HHM.success+"44"),borderRadius:6,padding:"4px 10px",fontSize:11,cursor:"pointer",color:u.active !== false ? HHM.danger : HHM.success,fontFamily:"inherit"}}
                       onClick={async () => { const upd = users.map(x => x.id === u.id ? {...x, active: u.active === false} : x); await persistUsers(upd); showToast(u.name + (u.active !== false ? " disabled" : " activated")); }}>
                       {u.active !== false ? "Disable" : "Enable"}
