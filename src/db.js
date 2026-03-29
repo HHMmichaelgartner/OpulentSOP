@@ -1,10 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 
-// ─── Supabase Config ───
-// Replace with your project credentials from supabase.com > Settings > API
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
-
 let supabase = null;
 let _supabaseOk = null;
 
@@ -21,64 +18,35 @@ async function testSupabase() {
     const sb = getSupabase();
     if (!sb) { _supabaseOk = false; return false; }
     const { error } = await sb.from('roles').select('id').limit(1);
-    _supabaseOk = !error;
-    return _supabaseOk;
-  } catch {
-    _supabaseOk = false;
-    return false;
-  }
+    if (error) { console.error('[DB] Supabase test failed:', error.message); _supabaseOk = false; return false; }
+    console.log('[DB] Supabase connected');
+    _supabaseOk = true;
+    return true;
+  } catch (e) { console.error('[DB] Supabase test error:', e); _supabaseOk = false; return false; }
 }
 
-// ─── IndexedDB Fallback ───
+// IndexedDB fallback
 const _mem = {};
 let _idbOk = null;
-
 async function _tryIDB() {
   if (_idbOk !== null) return _idbOk;
   try {
     if (typeof indexedDB === 'undefined') { _idbOk = false; return false; }
-    const db = await new Promise((res, rej) => {
-      const r = indexedDB.open('HHM_SOP', 1);
-      r.onupgradeneeded = () => { try { r.result.createObjectStore('d'); } catch (e) {} };
-      r.onsuccess = () => res(r.result);
-      r.onerror = () => rej(r.error);
-      setTimeout(() => rej(new Error('timeout')), 2000);
-    });
-    db.close();
-    _idbOk = true;
-    return true;
+    const db = await new Promise(function(res, rej) { const r = indexedDB.open('HHM_SOP', 1); r.onupgradeneeded = function() { try { r.result.createObjectStore('d'); } catch(e) {} }; r.onsuccess = function() { res(r.result); }; r.onerror = function() { rej(r.error); }; setTimeout(function() { rej(new Error('timeout')); }, 2000); });
+    db.close(); _idbOk = true; return true;
   } catch { _idbOk = false; return false; }
 }
-
 async function idbGet(k) {
-  try {
-    if (await _tryIDB()) {
-      const db = await new Promise((res, rej) => { const r = indexedDB.open('HHM_SOP', 1); r.onsuccess = () => res(r.result); r.onerror = () => rej(); });
-      const val = await new Promise(res => {
-        try { const t = db.transaction('d', 'readonly'); const g = t.objectStore('d').get(k); g.onsuccess = () => res(g.result !== undefined ? g.result : null); g.onerror = () => res(null); } catch { res(null); }
-      });
-      db.close();
-      if (val !== null) return val;
-    }
-  } catch {}
+  try { if (await _tryIDB()) { const db = await new Promise(function(res, rej) { const r = indexedDB.open('HHM_SOP', 1); r.onsuccess = function() { res(r.result); }; r.onerror = function() { rej(); }; }); const val = await new Promise(function(res) { try { const t = db.transaction('d', 'readonly'); const g = t.objectStore('d').get(k); g.onsuccess = function() { res(g.result !== undefined ? g.result : null); }; g.onerror = function() { res(null); }; } catch(e) { res(null); } }); db.close(); if (val !== null) return val; } } catch(e) {}
   return _mem[k] !== undefined ? _mem[k] : null;
 }
-
 async function idbSet(k, v) {
   _mem[k] = v;
-  try {
-    if (await _tryIDB()) {
-      const db = await new Promise((res, rej) => { const r = indexedDB.open('HHM_SOP', 1); r.onsuccess = () => res(r.result); r.onerror = () => rej(); });
-      await new Promise(res => {
-        try { const t = db.transaction('d', 'readwrite'); t.objectStore('d').put(v, k); t.oncomplete = () => res(true); t.onerror = () => res(false); } catch { res(false); }
-      });
-      db.close();
-    }
-  } catch {}
+  try { if (await _tryIDB()) { const db = await new Promise(function(res, rej) { const r = indexedDB.open('HHM_SOP', 1); r.onsuccess = function() { res(r.result); }; r.onerror = function() { rej(); }; }); await new Promise(function(res) { try { const t = db.transaction('d', 'readwrite'); t.objectStore('d').put(v, k); t.oncomplete = function() { res(true); }; t.onerror = function() { res(false); }; } catch(e) { res(false); } }); db.close(); } } catch(e) {}
   return true;
 }
 
-// ─── Helper: convert between Supabase snake_case and app camelCase ───
+// Conversion
 function toApp(row, type) {
   if (!row) return null;
   if (type === 'user') return { id: row.id, name: row.name, password: row.password || '', email: row.email || '', roleId: row.role_id, department: row.department || '', active: row.active !== false, createdAt: row.created_at, lastLogin: row.last_login, failedAttempts: row.failed_attempts || 0, lockedUntil: row.locked_until || null };
@@ -88,7 +56,6 @@ function toApp(row, type) {
   if (type === 'template') return { id: row.id, templateName: row.template_name || '', department: row.department || '', items: row.items || [] };
   return row;
 }
-
 function toDB(obj, type) {
   if (!obj) return null;
   if (type === 'user') return { id: obj.id, name: obj.name, password: obj.password || '', email: obj.email || '', role_id: obj.roleId, department: obj.department || '', active: obj.active !== false, created_at: obj.createdAt || new Date().toISOString(), last_login: obj.lastLogin || null, failed_attempts: obj.failedAttempts || 0, locked_until: obj.lockedUntil || null };
@@ -100,7 +67,6 @@ function toDB(obj, type) {
 }
 
 // ─── Public API ───
-
 export async function checkConnection() {
   const sb = await testSupabase();
   if (sb) return 'supabase';
@@ -108,66 +74,78 @@ export async function checkConnection() {
   return 'memory';
 }
 
-// --- Users ---
+// Users
 export async function loadUsers() {
   try {
     if (await testSupabase()) {
       const { data, error } = await getSupabase().from('users').select('*').order('name');
-      if (!error && data) return data.map(r => toApp(r, 'user'));
+      if (error) { console.error('[DB] loadUsers:', error.message); }
+      else if (data) return data.map(function(r) { return toApp(r, 'user'); });
     }
-  } catch {}
-  const local = await idbGet('users');
+  } catch(e) { console.error('[DB] loadUsers catch:', e); }
+  var local = await idbGet('users');
   return Array.isArray(local) ? local : [];
 }
 
 export async function saveUsers(users) {
-  await idbSet('users', users); // always cache locally
+  await idbSet('users', users);
   try {
     if (await testSupabase()) {
-      const sb = getSupabase();
-      // Upsert all users
-      const rows = users.map(u => toDB(u, 'user'));
-      await sb.from('users').upsert(rows, { onConflict: 'id' });
-      // Delete users not in the list
-      const ids = users.map(u => u.id);
-      if (ids.length > 0) {
-        await sb.from('users').delete().not('id', 'in', '(' + ids.join(',') + ')');
+      var sb = getSupabase();
+      for (var i = 0; i < users.length; i++) {
+        var r = await sb.from('users').upsert(toDB(users[i], 'user'), { onConflict: 'id' });
+        if (r.error) console.error('[DB] saveUser ' + users[i].name + ':', r.error.message);
       }
     }
-  } catch (e) { console.error('saveUsers error:', e); }
+  } catch(e) { console.error('[DB] saveUsers:', e); }
 }
 
-// --- Roles ---
+export async function deleteUser(id) {
+  try {
+    if (await testSupabase()) {
+      var r = await getSupabase().from('users').delete().eq('id', id);
+      if (r.error) console.error('[DB] deleteUser:', r.error.message);
+    }
+  } catch(e) { console.error('[DB] deleteUser:', e); }
+}
+
+// Roles
 export async function loadRoles() {
   try {
     if (await testSupabase()) {
       const { data, error } = await getSupabase().from('roles').select('*').order('sort_order');
-      if (!error && data && data.length > 0) return data.map(r => toApp(r, 'role'));
+      if (error) { console.error('[DB] loadRoles:', error.message); }
+      else if (data && data.length > 0) return data.map(function(r) { return toApp(r, 'role'); });
     }
-  } catch {}
-  const local = await idbGet('roles');
-  return Array.isArray(local) && local.length > 0 ? local : null; // null = use defaults
+  } catch(e) { console.error('[DB] loadRoles catch:', e); }
+  var local = await idbGet('roles');
+  return Array.isArray(local) && local.length > 0 ? local : null;
 }
 
 export async function saveRoles(roles) {
   await idbSet('roles', roles);
   try {
     if (await testSupabase()) {
-      const rows = roles.map((r, i) => ({ ...toDB(r, 'role'), sort_order: i }));
-      await getSupabase().from('roles').upsert(rows, { onConflict: 'id' });
+      var sb = getSupabase();
+      for (var i = 0; i < roles.length; i++) {
+        var row = Object.assign({}, toDB(roles[i], 'role'), { sort_order: i });
+        var r = await sb.from('roles').upsert(row, { onConflict: 'id' });
+        if (r.error) console.error('[DB] saveRole ' + roles[i].label + ':', r.error.message);
+      }
     }
-  } catch (e) { console.error('saveRoles error:', e); }
+  } catch(e) { console.error('[DB] saveRoles:', e); }
 }
 
-// --- SOPs ---
+// SOPs
 export async function loadSOPs() {
   try {
     if (await testSupabase()) {
       const { data, error } = await getSupabase().from('sops').select('*').order('updated_at', { ascending: false });
-      if (!error && data) return data.map(r => toApp(r, 'sop'));
+      if (error) { console.error('[DB] loadSOPs:', error.message); }
+      else if (data) return data.map(function(r) { return toApp(r, 'sop'); });
     }
-  } catch {}
-  const local = await idbGet('sops');
+  } catch(e) { console.error('[DB] loadSOPs catch:', e); }
+  var local = await idbGet('sops');
   return Array.isArray(local) ? local : [];
 }
 
@@ -175,26 +153,34 @@ export async function saveSOPs(sops) {
   await idbSet('sops', sops);
   try {
     if (await testSupabase()) {
-      const sb = getSupabase();
-      const rows = sops.map(s => toDB(s, 'sop'));
-      await sb.from('sops').upsert(rows, { onConflict: 'id' });
-      const ids = sops.map(s => s.id);
-      if (ids.length > 0) {
-        await sb.from('sops').delete().not('id', 'in', '(' + ids.join(',') + ')');
+      var sb = getSupabase();
+      for (var i = 0; i < sops.length; i++) {
+        var r = await sb.from('sops').upsert(toDB(sops[i], 'sop'), { onConflict: 'id' });
+        if (r.error) console.error('[DB] saveSOP ' + sops[i].title + ':', r.error.message);
       }
     }
-  } catch (e) { console.error('saveSOPs error:', e); }
+  } catch(e) { console.error('[DB] saveSOPs:', e); }
 }
 
-// --- Audits ---
+export async function deleteSOP(id) {
+  try {
+    if (await testSupabase()) {
+      var r = await getSupabase().from('sops').delete().eq('id', id);
+      if (r.error) console.error('[DB] deleteSOP:', r.error.message);
+    }
+  } catch(e) { console.error('[DB] deleteSOP:', e); }
+}
+
+// Audits
 export async function loadAudits() {
   try {
     if (await testSupabase()) {
       const { data, error } = await getSupabase().from('audits').select('*').order('date', { ascending: false });
-      if (!error && data) return data.map(r => toApp(r, 'audit'));
+      if (error) { console.error('[DB] loadAudits:', error.message); }
+      else if (data) return data.map(function(r) { return toApp(r, 'audit'); });
     }
-  } catch {}
-  const local = await idbGet('audits');
+  } catch(e) { console.error('[DB] loadAudits catch:', e); }
+  var local = await idbGet('audits');
   return Array.isArray(local) ? local : [];
 }
 
@@ -202,26 +188,34 @@ export async function saveAudits(audits) {
   await idbSet('audits', audits);
   try {
     if (await testSupabase()) {
-      const sb = getSupabase();
-      const rows = audits.map(a => toDB(a, 'audit'));
-      await sb.from('audits').upsert(rows, { onConflict: 'id' });
-      const ids = audits.map(a => a.id);
-      if (ids.length > 0) {
-        await sb.from('audits').delete().not('id', 'in', '(' + ids.join(',') + ')');
+      var sb = getSupabase();
+      for (var i = 0; i < audits.length; i++) {
+        var r = await sb.from('audits').upsert(toDB(audits[i], 'audit'), { onConflict: 'id' });
+        if (r.error) console.error('[DB] saveAudit:', r.error.message);
       }
     }
-  } catch (e) { console.error('saveAudits error:', e); }
+  } catch(e) { console.error('[DB] saveAudits:', e); }
 }
 
-// --- Audit Templates ---
+export async function deleteAudit(id) {
+  try {
+    if (await testSupabase()) {
+      var r = await getSupabase().from('audits').delete().eq('id', id);
+      if (r.error) console.error('[DB] deleteAudit:', r.error.message);
+    }
+  } catch(e) { console.error('[DB] deleteAudit:', e); }
+}
+
+// Templates
 export async function loadTemplates() {
   try {
     if (await testSupabase()) {
       const { data, error } = await getSupabase().from('audit_templates').select('*');
-      if (!error && data) return data.map(r => toApp(r, 'template'));
+      if (error) { console.error('[DB] loadTemplates:', error.message); }
+      else if (data) return data.map(function(r) { return toApp(r, 'template'); });
     }
-  } catch {}
-  const local = await idbGet('atemplates');
+  } catch(e) { console.error('[DB] loadTemplates catch:', e); }
+  var local = await idbGet('atemplates');
   return Array.isArray(local) ? local : [];
 }
 
@@ -229,22 +223,38 @@ export async function saveTemplates(templates) {
   await idbSet('atemplates', templates);
   try {
     if (await testSupabase()) {
-      const sb = getSupabase();
-      const rows = templates.map(t => toDB(t, 'template'));
-      await sb.from('audit_templates').upsert(rows, { onConflict: 'id' });
-      const ids = templates.map(t => t.id);
-      if (ids.length > 0) {
-        await sb.from('audit_templates').delete().not('id', 'in', '(' + ids.join(',') + ')');
+      var sb = getSupabase();
+      for (var i = 0; i < templates.length; i++) {
+        var r = await sb.from('audit_templates').upsert(toDB(templates[i], 'template'), { onConflict: 'id' });
+        if (r.error) console.error('[DB] saveTemplate:', r.error.message);
       }
     }
-  } catch (e) { console.error('saveTemplates error:', e); }
+  } catch(e) { console.error('[DB] saveTemplates:', e); }
 }
 
-// --- Session ---
-export async function loadSession() {
-  return idbGet('session');
+export async function deleteTemplate(id) {
+  try {
+    if (await testSupabase()) {
+      var r = await getSupabase().from('audit_templates').delete().eq('id', id);
+      if (r.error) console.error('[DB] deleteTemplate:', r.error.message);
+    }
+  } catch(e) { console.error('[DB] deleteTemplate:', e); }
 }
 
-export async function saveSession(session) {
-  return idbSet('session', session);
+// Session
+export async function loadSession() { return idbGet('session'); }
+export async function saveSession(session) { return idbSet('session', session); }
+
+// Google SSO
+export async function signInWithGoogle() {
+  var sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { data, error } = await sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin } });
+  if (error) throw error;
+  return data;
 }
+export async function getGoogleSession() {
+  try { var sb = getSupabase(); if (!sb) return null; const { data } = await sb.auth.getSession(); if (!data || !data.session) return null; return { email: data.session.user?.email, name: data.session.user?.user_metadata?.full_name || data.session.user?.email, avatar: data.session.user?.user_metadata?.avatar_url, googleId: data.session.user?.id }; } catch(e) { return null; }
+}
+export async function signOutGoogle() { try { var sb = getSupabase(); if (sb) await sb.auth.signOut(); } catch(e) {} }
+export async function onAuthChange(callback) { try { var sb = getSupabase(); if (!sb) return null; var d = sb.auth.onAuthStateChange(function(event, session) { callback(event, session); }); return d?.data?.subscription; } catch(e) { return null; } }

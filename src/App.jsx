@@ -80,7 +80,7 @@ const STATUS_MAP = { draft:{label:"Draft",color:HHM.gray400}, review:{label:"In 
 const PRIORITY_MAP = { critical:{label:"Critical",color:HHM.danger}, high:{label:"High",color:"#EA580C"}, medium:{label:"Medium",color:HHM.warning}, low:{label:"Low",color:HHM.gray400} };
 
 // Storage: Supabase + IndexedDB fallback (see db.js)
-import { checkConnection, loadUsers, saveUsers as dbSaveUsers, loadRoles, saveRoles as dbSaveRoles, loadSOPs, saveSOPs as dbSaveSOPs, loadAudits, saveAudits as dbSaveAudits, loadTemplates, saveTemplates as dbSaveTemplates, loadSession, saveSession } from './db.js';
+import { checkConnection, loadUsers, saveUsers as dbSaveUsers, deleteUser as dbDeleteUser, loadRoles, saveRoles as dbSaveRoles, loadSOPs, saveSOPs as dbSaveSOPs, deleteSOP as dbDeleteSOP, loadAudits, saveAudits as dbSaveAudits, deleteAudit as dbDeleteAudit, loadTemplates, saveTemplates as dbSaveTemplates, deleteTemplate as dbDeleteTemplate, loadSession, saveSession, signInWithGoogle, getGoogleSession, signOutGoogle, onAuthChange } from './db.js';
 
 // ─── Export / Import Helpers ───
 function mdToHtml(md, title, dept, status, version, createdBy, date) {
@@ -202,6 +202,8 @@ export default function App() {
   const [loginPass, setLoginPass] = useState("");
   const [loginError, setLoginError] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
+  const [showAdminLogin, setShowAdminLogin] = useState(false);
+  const [ssoLoading, setSsoLoading] = useState(false);
   
   const [newSOP, setNewSOP] = useState({ title:"", department:"Housekeeping", category:"standards", content:"", priority:"medium", status:"draft", tags:"", roles:[], property:"", region:"", version:"1.0" });
 
@@ -217,6 +219,7 @@ export default function App() {
   const showToast = (msg, type) => { setToast({msg,type:type||"success"}); setTimeout(()=>setToast(null),3500); };
 
   useEffect(() => {
+    let authSub = null;
     (async () => {
       try {
         const conn = await checkConnection();
@@ -229,7 +232,6 @@ export default function App() {
         const se = await loadSession();
         const sa = await loadAudits();
         const st = await loadTemplates();
-        // Seed default admin if no users exist
         if (!Array.isArray(su) || su.length === 0) {
           su = [DEFAULT_ADMIN];
           await dbSaveUsers(su);
@@ -239,9 +241,46 @@ export default function App() {
         if (Array.isArray(ss) && ss.length) setSOPs(ss);
         if (Array.isArray(sa)) setAudits(sa);
         if (Array.isArray(st)) setAuditTemplates(st);
-        if (se && se.userId) { const u = su.find(x => x.id === se.userId); if (u && u.active !== false) { setCurrentUser(u); setShowLogin(false); } }
+
+        // Check for returning Google SSO session
+        const gSession = await getGoogleSession();
+        if (gSession && gSession.email) {
+          const gUser = su.find(function(x) { return x.email && x.email.toLowerCase() === gSession.email.toLowerCase(); });
+          if (gUser && gUser.active !== false) {
+            const updated = su.map(function(x) { return x.id === gUser.id ? Object.assign({}, x, { lastLogin: new Date().toISOString() }) : x; });
+            await dbSaveUsers(updated);
+            setUsers(updated);
+            setCurrentUser(Object.assign({}, gUser, { lastLogin: new Date().toISOString() }));
+            setShowLogin(false);
+            await saveSession({ userId: gUser.id });
+          }
+        } else if (se && se.userId) {
+          const u = su.find(function(x) { return x.id === se.userId; });
+          if (u && u.active !== false) { setCurrentUser(u); setShowLogin(false); }
+        }
       } catch {}
+
+      // Listen for auth state changes (Google SSO redirects)
+      authSub = await onAuthChange(async function(event, session) {
+        if (event === "SIGNED_IN" && session?.user?.email) {
+          const allU = await loadUsers();
+          const gUser = allU.find(function(x) { return x.email && x.email.toLowerCase() === session.user.email.toLowerCase(); });
+          if (gUser && gUser.active !== false) {
+            const updated = allU.map(function(x) { return x.id === gUser.id ? Object.assign({}, x, { lastLogin: new Date().toISOString() }) : x; });
+            await dbSaveUsers(updated);
+            setUsers(updated);
+            setCurrentUser(Object.assign({}, gUser, { lastLogin: new Date().toISOString() }));
+            setShowLogin(false);
+            await saveSession({ userId: gUser.id });
+            showToast("Welcome, " + gUser.name);
+          } else {
+            setLoginError("No account found for " + session.user.email + ". Contact Security Admin.");
+            await signOutGoogle();
+          }
+        }
+      });
     })();
+    return function() { if (authSub && authSub.unsubscribe) authSub.unsubscribe(); };
   }, []);
 
   const persistSops = async d => { setSOPs(d); await dbSaveSOPs(d); };
@@ -249,6 +288,18 @@ export default function App() {
   const persistRoles = async d => { setRoles(d); await dbSaveRoles(d); };
   const persistAudits = async d => { setAudits(d); await dbSaveAudits(d); };
   const persistTemplates = async d => { setAuditTemplates(d); await dbSaveTemplates(d); };
+
+  const handleGoogleSSO = async function() {
+    setSsoLoading(true);
+    setLoginError("");
+    try {
+      await signInWithGoogle();
+      // Redirect happens — user comes back and onAuthChange fires
+    } catch (err) {
+      setLoginError("Google sign-in failed: " + (err.message || "Unknown error"));
+      setSsoLoading(false);
+    }
+  };
 
   const handleLogin = async (e) => {
     if (e && e.preventDefault) e.preventDefault();
@@ -315,7 +366,7 @@ export default function App() {
     }
     setLoginLoading(false);
   };
-  const logout = async () => { setCurrentUser(null); setShowLogin(true); setView("dashboard"); await saveSession(null); };
+  const logout = async () => { setCurrentUser(null); setShowLogin(true); setShowAdminLogin(false); setView("dashboard"); await signOutGoogle(); await saveSession(null); };
 
   const userRole = currentUser ? roles.find(r=>r.id===currentUser.roleId) : null;
   const hasPerm = p => userRole?.permissions?.includes(p);
@@ -333,7 +384,7 @@ export default function App() {
     else{upd=[...sops,{...sop,id:genId(),createdAt:new Date().toISOString(),createdBy:currentUser?.name,updatedAt:new Date().toISOString(),updatedBy:currentUser?.name}];}
     await persistSops(upd); showToast(exists?"SOP updated and saved":"SOP created and saved");
   };
-  const deleteSOP = async id => { await persistSops(sops.filter(s=>s.id!==id)); setSelectedSOP(null); showToast("SOP deleted","info"); };
+  const deleteSOP = async function(id) { await dbDeleteSOP(id); await persistSops(sops.filter(function(s) { return s.id !== id; })); setSelectedSOP(null); showToast("SOP deleted","info"); };
 
   const generateTemplate = () => {
     if(!aiPrompt.trim()){showToast("Enter a description","error");return;}
@@ -350,20 +401,36 @@ export default function App() {
       <div style={S.roleLogoArea}><HHMLogo size={isMobile?60:80}/><div style={S.roleHr}/><p style={{...S.rolePlatformName,fontSize:isMobile?11:14}}>SOP Management Platform</p></div>
       <div style={{background:"#001E42",borderRadius:12,padding:isMobile?20:32,maxWidth:420,margin:"0 auto",border:"1px solid #1E3A5F"}}>
         <h3 style={{color:HHM.white,margin:"0 0 6px",fontSize:18,fontWeight:700}}>Sign In</h3>
-        <p style={{color:"#7BA3C4",fontSize:13,margin:"0 0 20px"}}>Enter your credentials. Contact Security Admin for access.</p>
-        <div onSubmit={handleLogin} style={{display:"flex",flexDirection:"column",gap:12}}>
-          <div>
-            <label style={{display:"block",fontSize:12,color:"#5A8AAE",marginBottom:4,fontWeight:600}}>USERNAME</label>
-            <input type="text" style={{width:"100%",padding:"14px 16px",borderRadius:8,border:"1px solid #1E3A5F",background:"#001228",color:"#C8DAE8",fontSize:16,fontFamily:"inherit",outline:"none",boxSizing:"border-box",WebkitAppearance:"none"}} placeholder="Enter username" value={loginName} onChange={function(e){setLoginName(e.target.value);setLoginError("");}} autoComplete="username" autoCorrect="off" autoCapitalize="off" spellCheck="false" />
-          </div>
-          <div>
-            <label style={{display:"block",fontSize:12,color:"#5A8AAE",marginBottom:4,fontWeight:600}}>PASSWORD</label>
-            <input type="password" style={{width:"100%",padding:"14px 16px",borderRadius:8,border:"1px solid #1E3A5F",background:"#001228",color:"#C8DAE8",fontSize:16,fontFamily:"inherit",outline:"none",boxSizing:"border-box",WebkitAppearance:"none"}} placeholder="Enter password" value={loginPass} onChange={function(e){setLoginPass(e.target.value);setLoginError("");}} autoComplete="current-password" onKeyDown={function(e){if(e.key==="Enter"){e.preventDefault();handleLogin();}}} />
-          </div>
-          {loginError && <div style={{background:"#DC262618",border:"1px solid #DC262644",borderRadius:8,padding:"10px 14px",fontSize:13,color:"#DC2626"}}>{loginError}</div>}
-          <button type="button" style={{width:"100%",minHeight:52,padding:"14px 22px",borderRadius:8,border:"none",background:HHM.blue,color:HHM.white,fontSize:16,fontWeight:700,cursor:"pointer",fontFamily:"inherit",WebkitAppearance:"none",WebkitTapHighlightColor:"transparent",touchAction:"manipulation",opacity:loginLoading?0.6:1}} onClick={function(){handleLogin();}} disabled={loginLoading}>{loginLoading?"Signing in...":"Sign In"}</button>
+        <p style={{color:"#7BA3C4",fontSize:13,margin:"0 0 24px"}}>Sign in with your organization Google account.</p>
+
+        {loginError && <div style={{background:"#DC262618",border:"1px solid #DC262644",borderRadius:8,padding:"10px 14px",marginBottom:16,fontSize:13,color:"#DC2626"}}>{loginError}</div>}
+
+        {/* Google SSO Button */}
+        <button type="button" style={{width:"100%",minHeight:52,padding:"14px 22px",borderRadius:8,border:"1px solid #2A4A6F",background:"#FFFFFF",color:"#333",fontSize:16,fontWeight:600,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:12,WebkitAppearance:"none",WebkitTapHighlightColor:"transparent",touchAction:"manipulation",opacity:ssoLoading?0.6:1}} onClick={handleGoogleSSO} disabled={ssoLoading}>
+          <svg width="20" height="20" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+          {ssoLoading ? "Redirecting..." : "Sign in with Google"}
+        </button>
+
+        <p style={{color:"#3A5A7A",fontSize:11,margin:"20px 0 0",textAlign:"center"}}>Your Google email must be registered by a Security Admin before you can access the platform.</p>
+
+        {/* Admin Backdoor Toggle */}
+        <div style={{borderTop:"1px solid #1E3A5F",marginTop:20,paddingTop:16}}>
+          <button type="button" style={{background:"none",border:"none",color:"#3A5A7A",fontSize:11,cursor:"pointer",fontFamily:"inherit",padding:0,textDecoration:"underline"}} onClick={function(){setShowAdminLogin(!showAdminLogin);setLoginError("");}}>
+            {showAdminLogin ? "Hide admin login" : "Administrator access"}
+          </button>
+
+          {showAdminLogin && <div style={{marginTop:12,display:"flex",flexDirection:"column",gap:10}}>
+            <div>
+              <label style={{display:"block",fontSize:11,color:"#5A8AAE",marginBottom:4,fontWeight:600}}>ADMIN USERNAME</label>
+              <input type="text" style={{width:"100%",padding:"12px 14px",borderRadius:8,border:"1px solid #1E3A5F",background:"#001228",color:"#C8DAE8",fontSize:16,fontFamily:"inherit",outline:"none",boxSizing:"border-box",WebkitAppearance:"none"}} placeholder="Admin username" value={loginName} onChange={function(e){setLoginName(e.target.value);setLoginError("");}} autoComplete="username" autoCorrect="off" autoCapitalize="off" />
+            </div>
+            <div>
+              <label style={{display:"block",fontSize:11,color:"#5A8AAE",marginBottom:4,fontWeight:600}}>ADMIN PASSWORD</label>
+              <input type="password" style={{width:"100%",padding:"12px 14px",borderRadius:8,border:"1px solid #1E3A5F",background:"#001228",color:"#C8DAE8",fontSize:16,fontFamily:"inherit",outline:"none",boxSizing:"border-box",WebkitAppearance:"none"}} placeholder="Password" value={loginPass} onChange={function(e){setLoginPass(e.target.value);setLoginError("");}} autoComplete="current-password" onKeyDown={function(e){if(e.key==="Enter"){e.preventDefault();handleLogin();}}} />
+            </div>
+            <button type="button" style={{width:"100%",minHeight:44,padding:"10px 22px",borderRadius:8,border:"1px solid #1E3A5F",background:"transparent",color:"#7BA3C4",fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"inherit",WebkitAppearance:"none",touchAction:"manipulation",opacity:loginLoading?0.6:1}} onClick={function(){handleLogin();}} disabled={loginLoading}>{loginLoading?"Signing in...":"Admin Sign In"}</button>
+          </div>}
         </div>
-        <p style={{color:"#4A6A8A",fontSize:11,marginTop:16,marginBottom:0}}>Contact your Security Admin if you need access.</p>
       </div>
       <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,marginTop:20}}>
         <div style={{width:8,height:8,borderRadius:"50%",background:dbStatus==="connected"?HHM.success:dbStatus==="error"?HHM.danger:HHM.warning}}/>
@@ -527,7 +594,7 @@ export default function App() {
                   <div style={{fontSize:12,color:HHM.gray400,marginTop:2}}>{a.property||"-"} . {a.department||"-"} . {a.auditor} . {new Date(a.date).toLocaleDateString()}</div></div>
                 <div style={{display:"flex",alignItems:"center",gap:10}}>
                   <div style={{textAlign:"center"}}><div style={{fontSize:24,fontWeight:800,color:a.score>=4?HHM.success:a.score>=3?HHM.warning:HHM.danger}}>{a.score.toFixed(1)}</div><div style={{fontSize:10,color:HHM.gray400}}>/ 5.0</div></div>
-                  <button style={{...S.btnDanger,padding:"4px 10px",fontSize:11}} onClick={async()=>{if(!confirm("Delete this audit?"))return;await persistAudits(audits.filter(x=>x.id!==a.id));showToast("Audit deleted","info");}}>Delete</button>
+                  <button style={{...S.btnDanger,padding:"4px 10px",fontSize:11}} onClick={async function(){if(!confirm("Delete this audit?"))return;await dbDeleteAudit(a.id);await persistAudits(audits.filter(function(x){return x.id!==a.id;}));showToast("Audit deleted","info");}}>Delete</button>
                 </div>
               </div>
               {a.items&&a.items.length>0&&<div style={{marginTop:10,display:"flex",gap:4,flexWrap:"wrap"}}>{a.items.map((item,i)=> <div key={i} style={{fontSize:11,padding:"2px 8px",borderRadius:10,background:item.score>=4?HHM.success+"18":item.score>=3?HHM.warning+"18":HHM.danger+"18",color:item.score>=4?HHM.success:item.score>=3?HHM.warning:HHM.danger}}>{item.label}: {item.score}/5</div>)}</div>}
@@ -600,7 +667,7 @@ export default function App() {
           :<div style={{display:"flex",flexDirection:"column",gap:10}}>
             {auditTemplates.map(t=> <div key={t.id} style={{background:HHM.white,borderRadius:10,border:"1px solid "+HHM.gray100,padding:"16px 20px",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
               <div><div style={{fontWeight:700,color:HHM.navy}}>{t.templateName}</div><div style={{fontSize:12,color:HHM.gray400}}>{t.department} . {t.items.length} items</div></div>
-              <button style={{...S.btnDanger,padding:"4px 10px",fontSize:11}} onClick={async()=>{if(!confirm("Delete template?"))return;await persistTemplates(auditTemplates.filter(x=>x.id!==t.id));showToast("Template deleted","info");}}>Delete</button>
+              <button style={{...S.btnDanger,padding:"4px 10px",fontSize:11}} onClick={async function(){if(!confirm("Delete template?"))return;await dbDeleteTemplate(t.id);await persistTemplates(auditTemplates.filter(function(x){return x.id!==t.id;}));showToast("Template deleted","info");}}>Delete</button>
             </div>)}
           </div>}
         </div>}
@@ -825,7 +892,8 @@ export default function App() {
                       onClick={async () => {
                         if (u.id === currentUser?.id) { showToast("Cannot delete yourself", "error"); return; }
                         if (!confirm("Delete user '" + u.name + "' permanently?")) return;
-                        const upd = users.filter(x => x.id !== u.id);
+                        await dbDeleteUser(u.id);
+                        const upd = users.filter(function(x) { return x.id !== u.id; });
                         await persistUsers(upd);
                         showToast("User '" + u.name + "' deleted", "info");
                       }}>Delete</button>
