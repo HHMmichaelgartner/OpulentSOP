@@ -363,7 +363,7 @@ export default function App() {
           {loginError && <div style={{background:"#DC262618",border:"1px solid #DC262644",borderRadius:8,padding:"10px 14px",fontSize:13,color:"#DC2626"}}>{loginError}</div>}
           <button type="button" style={{width:"100%",minHeight:52,padding:"14px 22px",borderRadius:8,border:"none",background:HHM.blue,color:HHM.white,fontSize:16,fontWeight:700,cursor:"pointer",fontFamily:"inherit",WebkitAppearance:"none",WebkitTapHighlightColor:"transparent",touchAction:"manipulation",opacity:loginLoading?0.6:1}} onClick={function(){handleLogin();}} disabled={loginLoading}>{loginLoading?"Signing in...":"Sign In"}</button>
         </div>
-        <p style={{color:"#4A6A8A",fontSize:11,marginTop:16,marginBottom:0}}>Default: <strong style={{color:"#7BA3C4"}}>mjg-admin</strong> / <strong style={{color:"#7BA3C4"}}>admin123</strong></p>
+        <p style={{color:"#4A6A8A",fontSize:11,marginTop:16,marginBottom:0}}>Contact your Security Admin if you need access.</p>
       </div>
       <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,marginTop:20}}>
         <div style={{width:8,height:8,borderRadius:"50%",background:dbStatus==="connected"?HHM.success:dbStatus==="error"?HHM.danger:HHM.warning}}/>
