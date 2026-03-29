@@ -55,15 +55,16 @@ const ALL_PERMISSIONS = [
 ];
 
 const DEFAULT_ROLES = [
-  { id: "gm", label: "General Manager", icon: "crown", color: HHM.navy, desc: "Living playbook and control center", permissions: ["create","edit","delete","audit","approve","assign","admin"] },
+  { id: "security", label: "Security Admin", icon: "key", color: "#B45309", desc: "Full platform administration and security", permissions: ["create","edit","delete","audit","approve","assign","admin","report","version"] },
+  { id: "gm", label: "General Manager", icon: "crown", color: HHM.navy, desc: "Living playbook and control center", permissions: ["create","edit","delete","audit","approve","assign"] },
   { id: "dept", label: "Department Leader", icon: "hotel", color: "#0E7C47", desc: "Visual standards and team checklists", permissions: ["create","edit","audit"] },
   { id: "corporate", label: "Corporate Audit", icon: "clipboard", color: HHM.blue, desc: "Unified auditing framework", permissions: ["audit","report"] },
-  { id: "doo", label: "Director of Operations", icon: "globe", color: "#6D28D9", desc: "Portfolio-wide operating model", permissions: ["create","edit","delete","approve","audit","report","admin"] },
+  { id: "doo", label: "Director of Operations", icon: "globe", color: "#6D28D9", desc: "Portfolio-wide operating model", permissions: ["create","edit","delete","approve","audit","report"] },
   { id: "quality", label: "Quality Standards Mgr", icon: "check", color: "#0E7490", desc: "Version control and localization", permissions: ["create","edit","approve","version"] },
   { id: "brand", label: "Brand & Regional Leader", icon: "building", color: "#B91C1C", desc: "Global standards and compliance", permissions: ["create","edit","approve","report","audit"] },
 ];
 
-const RI = { crown:"\u{1F451}", hotel:"\u{1F3E8}", clipboard:"\u{1F4CB}", globe:"\u{1F310}", check:"\u2705", building:"\u{1F3DB}\uFE0F", user:"\u{1F464}" };
+const RI = { key:"\u{1F511}", crown:"\u{1F451}", hotel:"\u{1F3E8}", clipboard:"\u{1F4CB}", globe:"\u{1F310}", check:"\u2705", building:"\u{1F3DB}\uFE0F", user:"\u{1F464}" };
 const DEPARTMENTS = ["Housekeeping","Front Office","F&B","Engineering","Spa & Wellness","Revenue Management","Security","HR & Training","Guest Relations","Concierge"];
 const CATEGORIES = [
   { id:"standards", label:"Operating Standards", icon:"\u{1F4D0}" },
@@ -198,7 +199,9 @@ export default function App() {
   const [settingsTab, setSettingsTab] = useState("users");
   const [showLogin, setShowLogin] = useState(true);
   const [loginName, setLoginName] = useState("");
+  const [loginPass, setLoginPass] = useState("");
   const [loginError, setLoginError] = useState("");
+  const [loginLoading, setLoginLoading] = useState(false);
   
   const [newSOP, setNewSOP] = useState({ title:"", department:"Housekeeping", category:"standards", content:"", priority:"medium", status:"draft", tags:"", roles:[], property:"", region:"", version:"1.0" });
 
@@ -209,7 +212,7 @@ export default function App() {
   const [auditView, setAuditView] = useState("list"); // list | conduct | templates | newtemplate
   const [reportTab, setReportTab] = useState("property");
 
-  const DEFAULT_ADMIN = { id: "admin001", name: "Admin", roleId: "gm", active: true, createdAt: new Date().toISOString(), lastLogin: null };
+  const DEFAULT_ADMIN = { id: "admin001", name: "mjg-admin", roleId: "security", active: true, password: "admin123", createdAt: new Date().toISOString(), lastLogin: null };
 
   const showToast = (msg, type) => { setToast({msg,type:type||"success"}); setTimeout(()=>setToast(null),3500); };
 
@@ -247,28 +250,41 @@ export default function App() {
   const persistAudits = async d => { setAudits(d); await dbSaveAudits(d); };
   const persistTemplates = async d => { setAuditTemplates(d); await dbSaveTemplates(d); };
 
-  const login = async (name) => {
+  const handleLogin = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
     setLoginError("");
-    if (!name.trim()) { setLoginError("Please enter your name."); return; }
-    // If users haven't loaded yet, try fetching again
-    let allUsers = users;
-    if (allUsers.length === 0) {
-      try {
-        allUsers = await loadUsers();
-        if (Array.isArray(allUsers) && allUsers.length > 0) setUsers(allUsers);
-      } catch {}
+    setLoginLoading(true);
+    try {
+      const name = loginName.trim();
+      const pass = loginPass;
+      if (!name) { setLoginError("Please enter your username."); setLoginLoading(false); return; }
+      if (!pass) { setLoginError("Please enter your password."); setLoginLoading(false); return; }
+      // If users haven't loaded yet, try fetching again
+      let allUsers = users;
+      if (allUsers.length === 0) {
+        try {
+          allUsers = await loadUsers();
+          if (Array.isArray(allUsers) && allUsers.length > 0) setUsers(allUsers);
+        } catch {}
+      }
+      if (allUsers.length === 0) { setLoginError("Database is still loading. Please wait a moment and try again."); setLoginLoading(false); return; }
+      const u = allUsers.find(x => x.name.toLowerCase() === name.toLowerCase());
+      if (!u) { setLoginError("User not found. Contact your Security Admin for access."); setLoginLoading(false); return; }
+      if (u.active === false) { setLoginError("Account disabled. Contact your Security Admin."); setLoginLoading(false); return; }
+      if (u.password && u.password !== pass) { setLoginError("Incorrect password."); setLoginLoading(false); return; }
+      if (!u.password && pass !== "changeme") { setLoginError("Incorrect password."); setLoginLoading(false); return; }
+      const updated = allUsers.map(x => x.id === u.id ? { ...x, lastLogin: new Date().toISOString() } : x);
+      await persistUsers(updated);
+      setCurrentUser({ ...u, lastLogin: new Date().toISOString() });
+      setShowLogin(false);
+      setLoginError("");
+      setLoginPass("");
+      await saveSession({ userId: u.id });
+      showToast("Welcome, " + u.name);
+    } catch (err) {
+      setLoginError("Login failed: " + (err.message || "Unknown error"));
     }
-    if (allUsers.length === 0) { setLoginError("Database is still loading. Please wait a moment and try again."); return; }
-    const u = allUsers.find(x => x.name.toLowerCase() === name.trim().toLowerCase());
-    if (!u) { setLoginError("User \"" + name.trim() + "\" not found. Contact an administrator to get access."); return; }
-    if (u.active === false) { setLoginError("Your account has been disabled. Contact an administrator."); return; }
-    const updated = allUsers.map(x => x.id === u.id ? { ...x, lastLogin: new Date().toISOString() } : x);
-    await persistUsers(updated);
-    setCurrentUser({ ...u, lastLogin: new Date().toISOString() });
-    setShowLogin(false);
-    setLoginError("");
-    await saveSession({ userId: u.id });
-    showToast("Welcome, " + u.name);
+    setLoginLoading(false);
   };
   const logout = async () => { setCurrentUser(null); setShowLogin(true); setView("dashboard"); await saveSession(null); };
 
@@ -298,17 +314,27 @@ export default function App() {
   };
   const resetNew = () => setNewSOP({title:"",department:"Housekeeping",category:"standards",content:"",priority:"medium",status:"draft",tags:"",roles:[],property:"",region:"",version:"1.0"});
 
-  if(showLogin) return <div style={{...S.rolePage,padding:isMobile?16:24,overflow:"auto",minHeight:"100vh",alignItems:"flex-start",paddingTop:isMobile?40:undefined}}>
+  if(showLogin) return <div style={{...S.rolePage,padding:isMobile?16:24,overflow:"auto",minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center"}}>
     <style>{"@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');"+MOBILE_CSS+"input,select,textarea{font-size:16px !important;-webkit-appearance:none;}"}</style>
     {toast&&<div style={{...S.toast,background:toast.type==="error"?HHM.danger:toast.type==="info"?HHM.blue:HHM.success,left:isMobile?16:"auto",right:isMobile?16:20}}>{toast.msg}</div>}
-    <div style={{...S.roleInner,paddingBottom:40}}><div style={S.roleLogoArea}><HHMLogo size={isMobile?60:80}/><div style={S.roleHr}/><p style={{...S.rolePlatformName,fontSize:isMobile?11:14}}>SOP Management Platform</p></div>
+    <div style={{...S.roleInner,paddingBottom:40}}>
+      <div style={S.roleLogoArea}><HHMLogo size={isMobile?60:80}/><div style={S.roleHr}/><p style={{...S.rolePlatformName,fontSize:isMobile?11:14}}>SOP Management Platform</p></div>
       <div style={{background:"#001E42",borderRadius:12,padding:isMobile?20:32,maxWidth:420,margin:"0 auto",border:"1px solid #1E3A5F"}}>
         <h3 style={{color:HHM.white,margin:"0 0 6px",fontSize:18,fontWeight:700}}>Sign In</h3>
-        <p style={{color:"#7BA3C4",fontSize:13,margin:"0 0 20px"}}>Enter your name to access the platform. You must be added by an administrator first.</p>
-        <input style={{...S.aiInput,width:"100%",marginBottom:12,boxSizing:"border-box",fontSize:16}} placeholder="Your full name" value={loginName} onChange={e=>setLoginName(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")login(loginName);}} autoComplete="name" autoCapitalize="words" />
-        {loginError&&<div style={{background:HHM.danger+"18",border:"1px solid "+HHM.danger+"44",borderRadius:8,padding:"10px 14px",marginBottom:12,fontSize:13,color:HHM.danger}}>{loginError}</div>}
-        <button style={{...S.btnPrimary,width:"100%",minHeight:48,fontSize:16,touchAction:"manipulation",opacity:dbStatus==="checking"?0.6:1}} onClick={()=>login(loginName)} disabled={dbStatus==="checking"}>{dbStatus==="checking"?"Connecting...":"Sign In"}</button>
-        <p style={{color:"#4A6A8A",fontSize:11,marginTop:16,marginBottom:0}}>Default admin account: <strong style={{color:"#7BA3C4"}}>Admin</strong></p>
+        <p style={{color:"#7BA3C4",fontSize:13,margin:"0 0 20px"}}>Enter your credentials. Contact Security Admin for access.</p>
+        <div onSubmit={handleLogin} style={{display:"flex",flexDirection:"column",gap:12}}>
+          <div>
+            <label style={{display:"block",fontSize:12,color:"#5A8AAE",marginBottom:4,fontWeight:600}}>USERNAME</label>
+            <input type="text" style={{width:"100%",padding:"14px 16px",borderRadius:8,border:"1px solid #1E3A5F",background:"#001228",color:"#C8DAE8",fontSize:16,fontFamily:"inherit",outline:"none",boxSizing:"border-box",WebkitAppearance:"none"}} placeholder="Enter username" value={loginName} onChange={function(e){setLoginName(e.target.value);setLoginError("");}} autoComplete="username" autoCorrect="off" autoCapitalize="off" spellCheck="false" />
+          </div>
+          <div>
+            <label style={{display:"block",fontSize:12,color:"#5A8AAE",marginBottom:4,fontWeight:600}}>PASSWORD</label>
+            <input type="password" style={{width:"100%",padding:"14px 16px",borderRadius:8,border:"1px solid #1E3A5F",background:"#001228",color:"#C8DAE8",fontSize:16,fontFamily:"inherit",outline:"none",boxSizing:"border-box",WebkitAppearance:"none"}} placeholder="Enter password" value={loginPass} onChange={function(e){setLoginPass(e.target.value);setLoginError("");}} autoComplete="current-password" onKeyDown={function(e){if(e.key==="Enter"){e.preventDefault();handleLogin();}}} />
+          </div>
+          {loginError && <div style={{background:"#DC262618",border:"1px solid #DC262644",borderRadius:8,padding:"10px 14px",fontSize:13,color:"#DC2626"}}>{loginError}</div>}
+          <button type="button" style={{width:"100%",minHeight:52,padding:"14px 22px",borderRadius:8,border:"none",background:HHM.blue,color:HHM.white,fontSize:16,fontWeight:700,cursor:"pointer",fontFamily:"inherit",WebkitAppearance:"none",WebkitTapHighlightColor:"transparent",touchAction:"manipulation",opacity:loginLoading?0.6:1}} onClick={function(){handleLogin();}} disabled={loginLoading}>{loginLoading?"Signing in...":"Sign In"}</button>
+        </div>
+        <p style={{color:"#4A6A8A",fontSize:11,marginTop:16,marginBottom:0}}>Default: <strong style={{color:"#7BA3C4"}}>mjg-admin</strong> / <strong style={{color:"#7BA3C4"}}>admin123</strong></p>
       </div>
       <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,marginTop:20}}>
         <div style={{width:8,height:8,borderRadius:"50%",background:dbStatus==="connected"?HHM.success:dbStatus==="error"?HHM.danger:HHM.warning}}/>
@@ -684,7 +710,8 @@ export default function App() {
           <div style={{background:HHM.white,borderRadius:12,border:"1px solid "+HHM.gray100,padding:20,marginBottom:20}}>
             <h4 style={{margin:"0 0 12px",fontSize:14,color:HHM.navy}}>Add New User</h4>
             <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end"}}>
-              <div style={{flex:"1 1 180px"}}><label style={S.formLabel}>Full Name *</label><input id="newUserName" style={{...S.formInput,width:"100%",boxSizing:"border-box"}} placeholder="e.g. John Smith" /></div>
+              <div style={{flex:"1 1 180px"}}><label style={S.formLabel}>Username *</label><input id="newUserName" style={{...S.formInput,width:"100%",boxSizing:"border-box"}} placeholder="e.g. jsmith" /></div>
+              <div style={{flex:"1 1 180px"}}><label style={S.formLabel}>Password *</label><input id="newUserPass" type="password" style={{...S.formInput,width:"100%",boxSizing:"border-box"}} placeholder="Set password" /></div>
               <div style={{flex:"1 1 180px"}}><label style={S.formLabel}>Email</label><input id="newUserEmail" style={{...S.formInput,width:"100%",boxSizing:"border-box"}} placeholder="e.g. john@hhm.com" /></div>
               <div style={{flex:"1 1 160px"}}><label style={S.formLabel}>Role *</label><select id="newUserRole" style={{...S.formInput,width:"100%",boxSizing:"border-box",cursor:"pointer"}} defaultValue="dept">
                 {roles.map(r => <option key={r.id} value={r.id}>{(RI[r.icon]||"") + " " + r.label}</option>)}
@@ -695,17 +722,21 @@ export default function App() {
               </select></div>
               <button style={{...S.btnPrimary,height:42}} onClick={async () => {
                 const nameEl = document.getElementById("newUserName");
+                const passEl = document.getElementById("newUserPass");
                 const emailEl = document.getElementById("newUserEmail");
                 const roleEl = document.getElementById("newUserRole");
                 const deptEl = document.getElementById("newUserDept");
                 const name = nameEl?.value?.trim();
-                if (!name) { showToast("Name is required", "error"); return; }
+                const pass = passEl?.value;
+                if (!name) { showToast("Username is required", "error"); return; }
+                if (!pass) { showToast("Password is required", "error"); return; }
                 if (users.find(u => u.name.toLowerCase() === name.toLowerCase())) { showToast("User '" + name + "' already exists", "error"); return; }
-                const newUser = { id: genId(), name: name, email: emailEl?.value?.trim() || "", roleId: roleEl?.value || "dept", department: deptEl?.value || "", active: true, createdAt: new Date().toISOString(), lastLogin: null };
+                const newUser = { id: genId(), name: name, password: pass, email: emailEl?.value?.trim() || "", roleId: roleEl?.value || "dept", department: deptEl?.value || "", active: true, createdAt: new Date().toISOString(), lastLogin: null };
                 const updated = [...users, newUser];
                 await persistUsers(updated);
                 showToast("User '" + name + "' added successfully");
                 if (nameEl) nameEl.value = "";
+                if (passEl) passEl.value = "";
                 if (emailEl) emailEl.value = "";
               }}>Add User</button>
             </div>
