@@ -434,7 +434,11 @@ export default function App() {
       </div>
       <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,marginTop:20}}>
         <div style={{width:8,height:8,borderRadius:"50%",background:dbStatus==="connected"?HHM.success:dbStatus==="error"?HHM.danger:HHM.warning}}/>
-        <span style={{fontSize:11,color:"#5A8AAE"}}>{dbStatus==="connected"?"Database Connected":dbStatus==="memory"?"In-Memory (session only)":"Connecting..."}</span>
+        <span style={{fontSize:11,color:"#5A8AAE"}}>{dbStatus==="connected"?"Supabase Connected":dbStatus==="memory"?"In-Memory (session only)":"Connecting..."}</span>
+      </div>
+      <div style={{marginTop:8,fontSize:10,color:"#3A5A7A",textAlign:"center",lineHeight:1.6}}>
+        <div>ENV: {import.meta.env.VITE_SUPABASE_URL ? "URL set" : "URL MISSING"} | {import.meta.env.VITE_SUPABASE_ANON_KEY ? "KEY set" : "KEY MISSING"}</div>
+        <div>Users loaded: {users.length} | DB: {dbStatus}</div>
       </div>
       <p style={S.roleFooter}>HHM Hotels - Hersha Hospitality Management</p>
     </div>
