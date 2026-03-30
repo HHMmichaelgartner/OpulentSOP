@@ -65,7 +65,7 @@ const DEFAULT_ROLES = [
 ];
 
 const RI = { key:"\u{1F511}", crown:"\u{1F451}", hotel:"\u{1F3E8}", clipboard:"\u{1F4CB}", globe:"\u{1F310}", check:"\u2705", building:"\u{1F3DB}\uFE0F", user:"\u{1F464}" };
-const DEPARTMENTS = ["Housekeeping","Front Office","F&B","Engineering","Spa & Wellness","Revenue Management","Security","HR & Training","Guest Relations","Concierge"];
+const DEPARTMENTS = ["Banquets & Catering","Concierge","Culinary","Engineering","Front Office","Guest Services (Door & Luggage)","Housekeeping","In Room Dining","Restaurants & Bars","Security","Spa & Pools","Valet Parking"];
 const CATEGORIES = [
   { id:"standards", label:"Operating Standards", icon:"\u{1F4D0}" },
   { id:"checklists", label:"Checklists & Workflows", icon:"\u2611\uFE0F" },
